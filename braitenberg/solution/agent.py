@@ -40,14 +40,19 @@ class BraitenbergAgent:
     r_max: float
     l_min: float
     r_min: float
+    x_min: float
+    x_min: float
 
+    
     def init(self, context: Context):
         context.info("init()")
         self.rgb = None
         self.l_max = -math.inf
         self.r_max = -math.inf
+        self.x_max = -math.inf
         self.l_min = math.inf
         self.r_min = math.inf
+        self.x_min = math.inf
         self.left = None
         self.right = None
 
@@ -90,9 +95,17 @@ class BraitenbergAgent:
         self.l_min = min(l, self.l_min)
         self.r_min = min(r, self.r_min)
 
+        self.x_max = max(l, self.x_max)
+        self.x_max = max(r, self.x_max)
+        self.x_min = min(l, self.x_min)
+        self.x_min = min(r, self.x_min)
+
         # now rescale from 0 to 1
-        ls = rescale(l, self.l_min, self.l_max)
-        rs = rescale(r, self.r_min, self.r_max)
+        #ls = rescale(l, self.l_min, self.l_max)
+        #rs = rescale(r, self.r_min, self.r_max)
+
+        ls = rescale(l, self.x_min, self.x_max)
+        rs = rescale(r, self.x_min, self.x_max)
 
         gain = self.config.gain
         const = self.config.const
