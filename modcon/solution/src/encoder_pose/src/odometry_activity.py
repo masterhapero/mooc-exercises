@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[76]:
 
 
 # The function written in this cell will actually be ran on your robot (sim or real). 
@@ -19,15 +19,17 @@ def DeltaPhi(encoder_msg, prev_ticks):
             rotation_wheel: Rotation of the wheel in radians (double)
             ticks: current number of ticks (int)
     """
-    
+    N_tot = encoder_msg.resolution # number of ticks per wheel revolution
+    ticks = encoder_msg.data # incremental count of ticks from the encoder
     # TODO: these are random values, you have to implement your own solution in here
-    ticks = prev_ticks + int(np.random.uniform(0, 10))     
-    delta_phi = np.random.random()
+    delta_ticks = ticks - prev_ticks 
+    alpha = 2*np.pi/N_tot 
+    delta_phi = delta_ticks*alpha
 
     return delta_phi, ticks
 
 
-# In[ ]:
+# In[77]:
 
 
 # The function written in this cell will actually be ran on your robot (sim or real). 
@@ -54,9 +56,38 @@ def poseEstimation( R, # radius of wheel (assumed identical) - this is fixed in 
     """
     
     # TODO: these are random values, you have to implement your own solution in here
-    x_curr = np.random.random() 
-    y_curr = np.random.random() 
-    theta_curr = np.random.random() 
+    d_left = R*delta_phi_left
+    d_right = R*delta_phi_right
+    omega = (d_right-d_left)/baseline_wheel2wheel
+    # -0.000040
+    v = (d_left + d_right) / 2
+    dt = v / 0.2
+    
+    if abs(omega) < 0.0001:
+        x_delta = v
+        y_delta = 0
+    else:
+        # omega = omega - 0.00016
+        radius = v / omega
+        x_delta = radius * np.sin(omega)
+        y_delta = radius * (1.0 - np.cos(omega))
 
+    theta_curr = theta_prev + omega
+    # x_curr = x_prev + x_delta * np.cos(theta_prev) - y_delta * np.sin(theta_prev)
+    # y_curr = y_prev + y_delta * np.cos(theta_prev) + x_delta * np.sin(theta_prev)
+    x_curr = x_prev + x_delta * np.cos(theta_prev) - y_delta * np.sin(theta_prev)
+    y_curr = y_prev + y_delta * np.cos(theta_prev) + x_delta * np.sin(theta_prev)
+    
+    # x_curr = x_prev + d_A*np.cos(theta_prev)
+    # y_curr = y_prev + d_A*np.sin(theta_prev)
+    
+    if delta_phi_left < -150.0 and delta_phi_right < -150.0:
+        print("ODOMETRY RESET TO ZERO")
+        theta_curr = np.deg2rad(0.6)
+        x_curr = 0.0
+        y_curr = 0.2
+        
+    # print(f"pose: X {x_curr:.4f} y_curr {y_curr:.4f} theta_curr {theta_curr:.4f} d_left {d_left:.5f} d_right: {d_right:.5f} v: {v:.5f} omega: {omega:.5f} x_delta: {x_delta:.4f} y_delta: {y_delta:.4f}")
+    #print("pose X"+str(x_curr)+" Y"+str(y_curr)+" "+str(theta_curr))
     return x_curr, y_curr, theta_curr
 

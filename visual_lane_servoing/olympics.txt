@@ -1,0 +1,2 @@
+dts challenges evaluate --challenge aido-LF-sim-validation
+

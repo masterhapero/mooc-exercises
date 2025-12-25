@@ -38,17 +38,36 @@ class LaneServoingNode(DTROS):
         # get the name of the robot
         self.veh = rospy.get_namespace().strip("/")
 
-        # The following are used for the Braitenberg exercise
-        self.v_0 = 0.15  # Forward velocity command
 
         # The following are used for scaling
         self.steer_max = -1
+
+        # The following are used for the Braitenberg exercise
+        # self.v_0 = 0.15  # Forward velocity command
+        # self.v_0 = 0.50  # Forward velocity command
+        self.v_0 = 0.55
+        self.steer_max = 900000
+        # self.steer_max = 300000
 
         w, h = 640, 480
         self._cutoff = ((int(0.5 * h), int(0.01 * h)), (int(0.1 * w), int(0.1 * w)))
 
         self.VLS_ACTION = None
         self.VLS_STOPPED = True
+
+        #if self.v_0 == 0.3:
+        self.Kp = 0.789
+        self.Ki = 0.000
+        self.Kd = 3.31
+        #else:
+        #    self.Kp = 2.0
+        #    self.Ki = 0.000
+        #    self.Kd = 12.0
+
+        self.log(f'Init speed {self.v_0} p {self.Kp} i {self.Ki} d {self.Kd} max_steer {self.steer_max}')
+
+        self.prev_e = 0.0
+        self.prev_int = 0.0
 
         # Used for AIDO evaluation
         self.AIDO_eval = rospy.get_param(f"/{self.veh}/AIDO_eval", False)
@@ -104,20 +123,34 @@ class LaneServoingNode(DTROS):
         self.log("Waiting for the Exercise App \"Visual Lane Servoing\" to be opened in VNC...")
 
     def cb_episode_start(self, msg: EpisodeStart):
-        loaded = yaml.load(msg.other_payload_yaml, Loader=yaml.FullLoader)
-        if "calibration_value" in loaded:
-            if self.AIDO_eval:
-                self.steer_max = loaded["calibration_value"]
-                # release robot
-                self.VLS_ACTION = "go"
-                self.VLS_STOPPED = False
-                # NOTE: this is needed to trigger the agent and get another image back
-                self.publish_command([0, 0])
-            else:
-                self.loginfo("Given calibration ignored as the test is running locally.")
-        else:
-            self.logwarn("No calibration value received. If you are running this on a real robot "
-                         "or on local simulation you can ignore this message.")
+        self.log(f'Starting episode "{msg}", ready to Go.')
+        # self.log(f'Episode data "{msg.other_payload_yaml}".')
+        # self.log(f'Episode AIDO_eval "{AIDO_eval}".')
+        # Clear integrator
+        self.prev_int = 0.0
+        # Launch!
+        self.VLS_ACTION = "go"
+        self.VLS_STOPPED = False
+        time.sleep(1)
+        self.publish_command([0, 0])
+        self.log(f'Episode Go Go Quack!')
+        # if "calibration_value" in msg.other_payload_yaml:
+        #    loaded = yaml.load(msg.other_payload_yaml, Loader=yaml.FullLoader)
+        #    if self.AIDO_eval:
+        #        self.steer_max = loaded["calibration_value"]
+        #        # release robot
+        #        self.VLS_ACTION = "go"
+        #        self.VLS_STOPPED = False
+        #        # NOTE: this is needed to trigger the agent and get another image back
+        #        self.publish_command([0, 0])
+        #    else:
+        #        self.loginfo("Given calibration ignored as the test is running locally.")
+        #else:
+        #    if self.AIDO_eval:
+        #    else:
+        #        self.log(f'Episode: Blah() - nothing')
+        #        self.logwarn("No calibration value received. If you are running this on a real robot "
+        #                     "or on local simulation you can ignore this message.")
 
     def cb_action(self, msg):
         """
@@ -155,6 +188,28 @@ class LaneServoingNode(DTROS):
                 self.VLS_STOPPED = True
                 return
 
+    def do_pid(self, omega_in):
+        """
+        Args:
+            omega_in (:double:) forward signal from braitenberg
+        returns:
+            omega (:double:) angular velocity of the Duckiebot
+        """
+        e = omega_in
+        # integration
+        e_int = self.prev_int + e
+        e_int = max(min(e_int,1.0),-1.0)
+        # derivative of the error
+        e_der = e - self.prev_e
+        # controller coefficients
+        # Buggy configuration - please debug - need wider window
+        # PID controller for omega
+        omega = self.Kp*e + self.Ki*e_int + self.Kd*e_der
+        print(f"PID int: {e_int:.2f} Preve : {self.prev_e:.2f} in: {omega_in:.2f} out: {omega:.2f}")
+        self.prev_e = omega_in
+        self.prev_int = e_int
+        return omega
+
     def cb_image(self, image_msg):
         """
         Processes the incoming image messages.
@@ -178,6 +233,16 @@ class LaneServoingNode(DTROS):
 
         # crop image
         (top, bottom), (left, right) = self._cutoff
+        if self.v_0 > 0.43:
+            if self.v_0 > 0.49:
+                # move window up by 8 pixels
+                top = top - 8
+                bottom = bottom + 8
+            else:
+                # move window up by 4 pixels
+                top = top - 4
+                bottom = bottom + 4
+            
         image = image[top:-bottom, left:-right, :]
 
         if self.is_shutdown:
@@ -220,11 +285,18 @@ class LaneServoingNode(DTROS):
         steer = float(np.sum(lt_mask * steer_matrix_left_lm)) + \
                 float(np.sum(rt_mask * steer_matrix_right_lm))
 
-        # now rescale from 0 to 1
+        # now rescale (scale by steer_max/300000)
         steer_scaled = np.sign(steer) * \
-                       rescale(min(np.abs(steer), self.steer_max), 0, self.steer_max)
+                       rescale(min(np.abs(steer), self.steer_max), 0, self.steer_max) * \
+                       self.steer_max/300000
+        
+        # now rescale from 0 to 1
+        # steer_scaled = np.sign(steer) * \
+        #                rescale(min(np.abs(steer), self.steer_max), 0, self.steer_max)
 
-        u = [self.v_0, steer_scaled * self.omega_max]
+        steer_pid = self.do_pid(steer_scaled)
+        # u = [self.v_0, steer_scaled * self.omega_max]
+        u = [self.v_0, steer_pid * self.omega_max]
         self.publish_command(u)
 
         # self.logging to screen for debugging purposes
